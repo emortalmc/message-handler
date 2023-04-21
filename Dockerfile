@@ -6,12 +6,12 @@ COPY go.mod .
 RUN go mod download
 
 COPY . .
-RUN go build -o private-message-service ./cmd
+RUN go build -o message-handler ./cmd/messagehandler
 
 FROM alpine
 
 WORKDIR /app
 
-COPY --from=go /app/private-message-service ./private-message-service
+COPY --from=go /app/message-handler ./message-handler
 COPY run/config.yaml ./config.yaml
-CMD ["./private-message-service"]
+CMD ["./message-handler"]

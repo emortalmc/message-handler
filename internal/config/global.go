@@ -6,21 +6,34 @@ import (
 )
 
 type Config struct {
-	RabbitMQ            RabbitMQConfig            `yaml:"rabbitmq"`
-	RelationshipService RelationshipServiceConfig `yaml:"relationshipService"`
-	Development         bool                      `yaml:"debug"`
+	Kafka *KafkaConfig
 
-	Port uint16 `yaml:"port"`
+	RelationshipService *RelationshipServiceConfig
+	BadgeService        *BadgeServiceConfig
+	PermissionService   *PermissionServiceConfig
+
+	Development bool
+	Port        uint16
 }
 
-type RabbitMQConfig struct {
-	Host     string `yaml:"host"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+type KafkaConfig struct {
+	Host string
+	Port int
 }
 
 type RelationshipServiceConfig struct {
-	Host string `yaml:"host"`
+	Host string
+	Port uint16
+}
+
+type BadgeServiceConfig struct {
+	Host string
+	Port uint16
+}
+
+type PermissionServiceConfig struct {
+	Host string
+	Port uint16
 }
 
 func LoadGlobalConfig() (cfg *Config, err error) {

@@ -2,20 +2,21 @@ package service
 
 import (
 	"context"
-	pb "github.com/emortalmc/proto-specs/gen/go/grpc/privatemessage"
+	pb "github.com/emortalmc/proto-specs/gen/go/grpc/messagehandler"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/relationship"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"private-message-service/internal/notifier"
+	"message-handler/internal/kafka"
 )
 
 type privateMessageService struct {
-	pb.PrivateMessageServer
-	notif notifier.Notifier
+	pb.MessageHandlerServer
+
+	notif kafka.Notifier
 	rs    relationship.RelationshipClient
 }
 
-func NewPrivateMessageService(notif notifier.Notifier, rs relationship.RelationshipClient) pb.PrivateMessageServer {
+func NewMessageHandlerService(notif kafka.Notifier, rs relationship.RelationshipClient) pb.MessageHandlerServer {
 	return &privateMessageService{
 		notif: notif,
 		rs:    rs,
@@ -47,7 +48,7 @@ func (s *privateMessageService) SendPrivateMessage(ctx context.Context, req *pb.
 		}
 	}
 
-	err = s.notif.MessageSent(ctx, req.Message)
+	err = s.notif.PrivateMessageCreated(ctx, req.Message)
 	if err != nil {
 		return nil, err
 	}

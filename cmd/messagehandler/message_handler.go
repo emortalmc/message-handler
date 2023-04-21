@@ -3,8 +3,8 @@ package main
 import (
 	"go.uber.org/zap"
 	"log"
-	"private-message-service/internal/app"
-	"private-message-service/internal/config"
+	"message-handler/internal/app"
+	"message-handler/internal/config"
 )
 
 func main() {
