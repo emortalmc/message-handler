@@ -15,9 +15,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"html/template"
-	"log"
 	"message-handler/internal/config"
+	"text/template"
 	"time"
 )
 
@@ -141,8 +140,6 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, m *kafka.Message
 	if err != nil {
 		c.logger.Errorw("failed to get player displayNamePart", err) // Log but continue
 	}
-
-	log.Printf("displayNamePart: %s", displayNamePart)
 
 	content, err := createMessage(&chatTemplateData{
 		Badge:       badgePart,
