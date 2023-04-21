@@ -1,17 +1,28 @@
-FROM golang:alpine as go
-WORKDIR /app
-ENV GO111MODULE=on
+FROM --platform=$BUILDPLATFORM golang:1.20-alpine AS build
 
-COPY go.mod .
+WORKDIR /build
+
+## Copy go.mod and go.sum files, download dependencies so they are cached
+COPY go.mod go.sum ./
+
 RUN go mod download
 
+# Copy sources
 COPY . .
-RUN go build -o message-handler ./cmd/messagehandler
+
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg \
+    CGO_ENABLED=0 \
+    GOOS=$TARGETOS \
+    GOARCH=$TARGETARCH \
+    go build -ldflags="-s -w" -o message-handler ./cmd/messagehandler
 
 FROM alpine
 
 WORKDIR /app
 
-COPY --from=go /app/message-handler ./message-handler
-COPY run/config.yaml ./config.yaml
+COPY --from=build /build/message-handler /build/run/config.yaml ./
 CMD ["./message-handler"]
