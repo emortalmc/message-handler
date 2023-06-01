@@ -2,22 +2,21 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"github.com/emortalmc/proto-specs/gen/go/grpc/messagehandler"
-	grpczap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/reflection"
 	"message-handler/internal/clients"
 	"message-handler/internal/config"
 	"message-handler/internal/kafka"
 	"message-handler/internal/service"
-	"net"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 func Run(cfg *config.Config, logger *zap.SugaredLogger) {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	wg := &sync.WaitGroup{}
+
 	relClient, err := clients.NewRelationshipClient(cfg.RelationshipService)
 	if err != nil {
 		logger.Fatalw("failed to connect to relationship service", err)
@@ -35,34 +34,10 @@ func Run(cfg *config.Config, logger *zap.SugaredLogger) {
 
 	notif := kafka.NewKafkaNotifier(cfg.Kafka, logger)
 
-	ctx := context.Background()
-	kafka.NewConsumer(ctx, cfg.Kafka, logger, notif, permClient, badgeClient)
+	kafka.NewConsumer(ctx, wg, cfg.Kafka, logger, notif, permClient, badgeClient)
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
-	if err != nil {
-		logger.Fatalw("failed to listen", err)
-	}
+	service.RunServices(ctx, logger, wg, cfg, notif, relClient)
 
-	s := grpc.NewServer(grpc.ChainUnaryInterceptor(
-		grpczap.UnaryServerInterceptor(logger.Desugar(), grpczap.WithLevels(func(code codes.Code) zapcore.Level {
-			if code != codes.Internal && code != codes.Unavailable && code != codes.Unknown {
-				return zapcore.DebugLevel
-			} else {
-				return zapcore.ErrorLevel
-			}
-		})),
-	))
-
-	if cfg.Development {
-		reflection.Register(s)
-	}
-
-	messagehandler.RegisterMessageHandlerServer(s, service.NewMessageHandlerService(notif, relClient))
-	logger.Infow("listening on port", "port", cfg.Port)
-
-	err = s.Serve(lis)
-	if err != nil {
-		logger.Fatalw("failed to serve", err)
-		return
-	}
+	wg.Wait()
+	logger.Info("shutting down")
 }

@@ -16,7 +16,7 @@ type privateMessageService struct {
 	rs    relationship.RelationshipClient
 }
 
-func NewMessageHandlerService(notif kafka.Notifier, rs relationship.RelationshipClient) pb.MessageHandlerServer {
+func newMessageHandlerService(notif kafka.Notifier, rs relationship.RelationshipClient) pb.MessageHandlerServer {
 	return &privateMessageService{
 		notif: notif,
 		rs:    rs,

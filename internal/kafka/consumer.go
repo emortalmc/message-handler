@@ -8,14 +8,17 @@ import (
 	"github.com/emortalmc/proto-specs/gen/go/grpc/permission"
 	"github.com/emortalmc/proto-specs/gen/go/message/common"
 	permmsg "github.com/emortalmc/proto-specs/gen/go/message/permission"
+	badgepbmodel "github.com/emortalmc/proto-specs/gen/go/model/badge"
 	pbmodel "github.com/emortalmc/proto-specs/gen/go/model/messagehandler"
 	permmodel "github.com/emortalmc/proto-specs/gen/go/model/permission"
+	"github.com/emortalmc/proto-specs/gen/go/nongenerated/kafkautils"
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"message-handler/internal/config"
+	"sync"
 	"text/template"
 	"time"
 )
@@ -26,9 +29,7 @@ const consumePermissionsTopic = "permissions"
 type consumer struct {
 	logger *zap.SugaredLogger
 
-	msgReader  *kafka.Reader
-	permReader *kafka.Reader
-	notifier   Notifier
+	notifier Notifier
 
 	permClient  permission.PermissionServiceClient
 	badgeClient badge.BadgeManagerClient
@@ -36,27 +37,28 @@ type consumer struct {
 	roleCache map[string]*permmodel.Role
 }
 
-func NewConsumer(ctx context.Context, cfg *config.KafkaConfig, logger *zap.SugaredLogger, notifier Notifier,
+func NewConsumer(ctx context.Context, wg *sync.WaitGroup, cfg *config.KafkaConfig, logger *zap.SugaredLogger, notifier Notifier,
 	permClient permission.PermissionServiceClient, badgeClient badge.BadgeManagerClient) {
 
-	msgReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)},
-		GroupID: "message-handler-service",
-		Topic:   consumeMessagesTopic,
-	})
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     []string{fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)},
+		GroupID:     "message-handler-service",
+		GroupTopics: []string{consumeMessagesTopic, consumePermissionsTopic},
 
-	permReader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)},
-		GroupID: "message-handler-service",
-		Topic:   consumePermissionsTopic,
+		Logger: kafka.LoggerFunc(func(format string, args ...interface{}) {
+			logger.Infow(fmt.Sprintf(format, args...))
+		}),
+		ErrorLogger: kafka.LoggerFunc(func(format string, args ...interface{}) {
+			logger.Errorw(fmt.Sprintf(format, args...))
+		}),
+
+		MaxWait: 5 * time.Second,
 	})
 
 	c := &consumer{
 		logger: logger,
 
-		msgReader:  msgReader,
-		permReader: permReader,
-		notifier:   notifier,
+		notifier: notifier,
 
 		permClient:  permClient,
 		badgeClient: badgeClient,
@@ -67,10 +69,20 @@ func NewConsumer(ctx context.Context, cfg *config.KafkaConfig, logger *zap.Sugar
 	c.cacheRoles(ctx)
 	logger.Infow("cached roles", "count", len(c.roleCache))
 
-	logger.Infow("listening for messages on topic", "topic", consumeMessagesTopic)
-	go c.consumeMessages(ctx)
-	logger.Infow("listening for permissions on topic", "topic", consumePermissionsTopic)
-	go c.consumePermissions(ctx)
+	handler := kafkautils.NewConsumerHandler(logger, reader)
+	handler.RegisterHandler(&common.PlayerChatMessageMessage{}, c.handlePlayerChatMessage)
+	handler.RegisterHandler(&permmsg.RoleUpdateMessage{}, c.handleRoleUpdate)
+
+	logger.Infow("starting listening for kafka messages", "topics", reader.Config().GroupTopics)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		handler.Run(ctx) // Run is blocking until the context is cancelled
+		if err := reader.Close(); err != nil {
+			logger.Errorw("error closing kafka reader", "error", err)
+		}
+	}()
 }
 
 func (c *consumer) cacheRoles(ctx context.Context) {
@@ -84,46 +96,18 @@ func (c *consumer) cacheRoles(ctx context.Context) {
 	}
 }
 
-func (c *consumer) consumeMessages(ctx context.Context) {
-	for {
-		m, err := c.msgReader.ReadMessage(ctx)
-		if err != nil {
-			panic(err)
-		}
-
-		var protoType string
-		for _, header := range m.Headers {
-			if header.Key == "X-Proto-Type" {
-				protoType = string(header.Value)
-			}
-		}
-		if protoType == "" {
-			c.logger.Warnw("no proto type found in message headers")
-			continue
-		}
-
-		if protoType != string((&common.PlayerChatMessageMessage{}).ProtoReflect().Descriptor().FullName()) {
-			continue
-		}
-
-		c.handlePlayerChatMessage(ctx, &m)
-	}
-}
-
-var chatTemplate = template.Must(template.New("chat").Parse("{{if .Badge}}{{.Badge}} {{end}}{{.DisplayName}}: {{.Text}}"))
+var chatTemplate = template.Must(template.New("chat").Parse("{{if .Badge}}<hover:show_text:'{{.BadgeHoverDescription}}'>{{.Badge}}</hover> {{end}}{{.DisplayName}}: {{.Text}}"))
 
 type chatTemplateData struct {
-	Badge       string
+	Badge                 string
+	BadgeHoverDescription string
+
 	DisplayName string
 	Text        string
 }
 
-func (c *consumer) handlePlayerChatMessage(ctx context.Context, m *kafka.Message) {
-	var msg common.PlayerChatMessageMessage
-	if err := proto.Unmarshal(m.Value, &msg); err != nil {
-		c.logger.Errorw("failed to unmarshal message", err)
-		return
-	}
+func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message, uncastMsg proto.Message) {
+	msg := uncastMsg.(*common.PlayerChatMessageMessage)
 
 	originalMessage := msg.Message
 
@@ -131,9 +115,9 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, m *kafka.Message
 	// 2. Get active prefix
 	// 3. Get active username
 	// Process in chat template :D
-	badgePart, err := c.getPlayerBadge(ctx, originalMessage.SenderId)
+	b, err := c.getPlayerBadge(ctx, originalMessage.SenderId)
 	if err != nil {
-		c.logger.Errorw("failed to get player badgePart", err) // Log but continue
+		c.logger.Errorw("failed to get player b", err) // Log but continue
 	}
 
 	displayNamePart, err := c.getDisplayUsername(ctx, originalMessage.SenderId, originalMessage.SenderUsername)
@@ -141,11 +125,17 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, m *kafka.Message
 		c.logger.Errorw("failed to get player displayNamePart", err) // Log but continue
 	}
 
-	content, err := createMessage(&chatTemplateData{
-		Badge:       badgePart,
+	templateData := &chatTemplateData{
 		DisplayName: displayNamePart,
 		Text:        originalMessage.Message,
-	})
+	}
+
+	if b != nil {
+		templateData.Badge = b.ChatCharacter
+		templateData.BadgeHoverDescription = b.HoverText
+	}
+
+	content, err := createMessage(templateData)
 
 	if err != nil {
 		c.logger.Errorw("failed to create chat message", err)
@@ -171,7 +161,7 @@ func createMessage(data *chatTemplateData) (string, error) {
 // getPlayerBadge returns a string (including a space if a badge is present) representing the player's active badge.
 // If no badge is present, an empty string is returned.
 // If there is an error, the string "?? " is returned.
-func (c *consumer) getPlayerBadge(ctx context.Context, playerId string) (string, error) {
+func (c *consumer) getPlayerBadge(ctx context.Context, playerId string) (*badgepbmodel.Badge, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -181,18 +171,18 @@ func (c *consumer) getPlayerBadge(ctx context.Context, playerId string) (string,
 	if err != nil {
 		if s, ok := status.FromError(err); ok {
 			if s.Code() == codes.NotFound {
-				return "", nil
+				return nil, nil
 			}
-			return "??", fmt.Errorf("failed to get player badge (status: %s): %w", s.Code(), err)
+			return nil, fmt.Errorf("failed to get player badge (status: %s): %w", s.Code(), err)
 		}
-		return "??", fmt.Errorf("failed to get player badge (status: unknown): %w", err)
+		return nil, fmt.Errorf("failed to get player badge (status: unknown): %w", err)
 	}
 
 	if res.Badge == nil {
-		return "", nil
+		return nil, nil
 	}
 
-	return res.Badge.ChatCharacter, nil
+	return res.Badge, nil
 }
 
 func (c *consumer) getDisplayUsername(ctx context.Context, playerId string, username string) (string, error) {
@@ -231,39 +221,13 @@ func (c *consumer) getDisplayUsername(ctx context.Context, playerId string, user
 	return buf.String(), nil
 }
 
-func (c *consumer) consumePermissions(ctx context.Context) {
-	for {
-		m, err := c.permReader.ReadMessage(ctx)
-		if err != nil {
-			panic(err)
-		}
+func (c *consumer) handleRoleUpdate(_ context.Context, _ *kafka.Message, uncastMsg proto.Message) {
+	msg := uncastMsg.(*permmsg.RoleUpdateMessage)
 
-		var protoType string
-		for _, header := range m.Headers {
-			if header.Key == "X-Proto-Type" {
-				protoType = string(header.Value)
-			}
-		}
-		if protoType == "" {
-			c.logger.Warnw("no proto type found in message headers")
-			continue
-		}
-
-		if protoType != string((&permmsg.RoleUpdateMessage{}).ProtoReflect().Descriptor().FullName()) {
-			continue
-		}
-
-		var msg permmsg.RoleUpdateMessage
-		if err := proto.Unmarshal(m.Value, &msg); err != nil {
-			c.logger.Errorw("failed to unmarshal RoleUpdateMessage", err)
-			return
-		}
-
-		switch msg.ChangeType {
-		case permmsg.RoleUpdateMessage_CREATE, permmsg.RoleUpdateMessage_MODIFY:
-			c.roleCache[msg.Role.Id] = msg.Role
-		case permmsg.RoleUpdateMessage_DELETE:
-			delete(c.roleCache, msg.Role.Id)
-		}
+	switch msg.ChangeType {
+	case permmsg.RoleUpdateMessage_CREATE, permmsg.RoleUpdateMessage_MODIFY:
+		c.roleCache[msg.Role.Id] = msg.Role
+	case permmsg.RoleUpdateMessage_DELETE:
+		delete(c.roleCache, msg.Role.Id)
 	}
 }

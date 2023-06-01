@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"message-handler/internal/config"
-	"time"
 )
 
 const writeTopic = "message-handler"
@@ -25,12 +24,12 @@ type kafkaNotifier struct {
 
 func NewKafkaNotifier(cfg *config.KafkaConfig, logger *zap.SugaredLogger) Notifier {
 	w := &kafka.Writer{
-		Addr:         kafka.TCP(fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)),
-		Topic:        writeTopic,
-		Balancer:     &kafka.LeastBytes{},
-		Async:        true,
-		BatchTimeout: 100 * time.Millisecond,
-		ErrorLogger:  kafka.LoggerFunc(logger.Errorw),
+		Addr:        kafka.TCP(fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)),
+		Topic:       writeTopic,
+		Balancer:    &kafka.LeastBytes{},
+		Async:       true,
+		BatchSize:   1,
+		ErrorLogger: kafka.LoggerFunc(logger.Errorw),
 	}
 
 	return &kafkaNotifier{w: w}
