@@ -8,9 +8,10 @@ import (
 type Config struct {
 	Kafka *KafkaConfig
 
-	RelationshipService *RelationshipServiceConfig
-	BadgeService        *BadgeServiceConfig
-	PermissionService   *PermissionServiceConfig
+	RelationshipService        *RelationshipServiceConfig
+	PlayerTrackerServiceConfig *PlayerTrackerServiceConfig
+	BadgeService               *BadgeServiceConfig
+	PermissionService          *PermissionServiceConfig
 
 	Development bool
 	Port        uint16
@@ -22,6 +23,11 @@ type KafkaConfig struct {
 }
 
 type RelationshipServiceConfig struct {
+	Host string
+	Port uint16
+}
+
+type PlayerTrackerServiceConfig struct {
 	Host string
 	Port uint16
 }

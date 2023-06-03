@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	pb "github.com/emortalmc/proto-specs/gen/go/grpc/messagehandler"
+	"github.com/emortalmc/proto-specs/gen/go/grpc/playertracker"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/relationship"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"message-handler/internal/kafka"
@@ -12,19 +14,46 @@ import (
 type privateMessageService struct {
 	pb.MessageHandlerServer
 
-	notif kafka.Notifier
-	rs    relationship.RelationshipClient
+	logger *zap.SugaredLogger
+
+	notif         kafka.Notifier
+	rs            relationship.RelationshipClient
+	playerTracker playertracker.PlayerTrackerClient
 }
 
-func newMessageHandlerService(notif kafka.Notifier, rs relationship.RelationshipClient) pb.MessageHandlerServer {
+func newMessageHandlerService(logger *zap.SugaredLogger, notif kafka.Notifier, rs relationship.RelationshipClient,
+	playerTracker playertracker.PlayerTrackerClient) pb.MessageHandlerServer {
+
 	return &privateMessageService{
-		notif: notif,
-		rs:    rs,
+		logger: logger,
+
+		notif:         notif,
+		rs:            rs,
+		playerTracker: playerTracker,
 	}
 }
 
+var (
+	sendPrivateMessageNotOnlineErr = panicIfErr(status.New(codes.Unavailable, "the player is not online").
+					WithDetails(&pb.PrivateMessageErrorResponse{Reason: pb.PrivateMessageErrorResponse_PLAYER_NOT_ONLINE})).Err()
+
+	sendPrivateMessageYouBlockedErr = panicIfErr(status.New(codes.PermissionDenied, "you have blocked this player").
+					WithDetails(&pb.PrivateMessageErrorResponse{Reason: pb.PrivateMessageErrorResponse_YOU_BLOCKED})).Err()
+
+	sendPrivateMessagePrivacyBlockedErr = panicIfErr(status.New(codes.PermissionDenied, "you are blocked by this player").
+						WithDetails(&pb.PrivateMessageErrorResponse{Reason: pb.PrivateMessageErrorResponse_PRIVACY_BLOCKED})).Err()
+)
+
 func (s *privateMessageService) SendPrivateMessage(ctx context.Context, req *pb.PrivateMessageRequest) (*pb.PrivateMessageResponse, error) {
-	// TODO: Check if the player is online.
+	trackerResp, err := s.playerTracker.GetPlayerServer(ctx, &playertracker.GetPlayerServerRequest{
+		PlayerId: req.Message.RecipientId,
+	})
+	if err != nil {
+		s.logger.Errorw("failed to get player server", "error", err)
+		// don't return an error here. We'd rather send a message to an offline player than fail because the player-tracker is down.
+	} else if trackerResp.Server == nil {
+		return nil, sendPrivateMessageNotOnlineErr
+	}
 
 	resp, err := s.rs.IsBlocked(ctx, &relationship.IsBlockedRequest{
 		IssuerId: req.Message.SenderId,
@@ -38,13 +67,9 @@ func (s *privateMessageService) SendPrivateMessage(ctx context.Context, req *pb.
 
 	if block != nil {
 		if block.BlockerId == req.Message.SenderId {
-			st := status.New(codes.PermissionDenied, "you have blocked this player")
-			st, _ = st.WithDetails(&pb.PrivateMessageErrorResponse{Reason: pb.PrivateMessageErrorResponse_YOU_BLOCKED})
-			return nil, st.Err()
+			return nil, sendPrivateMessageYouBlockedErr
 		} else {
-			st := status.New(codes.PermissionDenied, "you are blocked by this player")
-			st, _ = st.WithDetails(&pb.PrivateMessageErrorResponse{Reason: pb.PrivateMessageErrorResponse_PRIVACY_BLOCKED})
-			return nil, st.Err()
+			return nil, sendPrivateMessagePrivacyBlockedErr
 		}
 	}
 
@@ -56,4 +81,11 @@ func (s *privateMessageService) SendPrivateMessage(ctx context.Context, req *pb.
 	return &pb.PrivateMessageResponse{
 		Message: req.Message,
 	}, nil
+}
+
+func panicIfErr[T any](thing T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return thing
 }

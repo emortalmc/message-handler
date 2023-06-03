@@ -8,6 +8,10 @@ relationshipService:
   host: localhost
   port: 10002
 
+playerTrackerService:
+  host: localhost
+  port: 10005
+
 badgeService:
   host: localhost
   port: 10004

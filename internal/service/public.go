@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/messagehandler"
+	"github.com/emortalmc/proto-specs/gen/go/grpc/playertracker"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/relationship"
 	grpczap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"go.uber.org/zap"
@@ -18,7 +19,7 @@ import (
 )
 
 func RunServices(ctx context.Context, logger *zap.SugaredLogger, wg *sync.WaitGroup, cfg *config.Config,
-	notifier kafka.Notifier, rs relationship.RelationshipClient) {
+	notifier kafka.Notifier, rs relationship.RelationshipClient, playerTracker playertracker.PlayerTrackerClient) {
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 	if err != nil {
@@ -39,7 +40,7 @@ func RunServices(ctx context.Context, logger *zap.SugaredLogger, wg *sync.WaitGr
 		reflection.Register(s)
 	}
 
-	messagehandler.RegisterMessageHandlerServer(s, newMessageHandlerService(notifier, rs))
+	messagehandler.RegisterMessageHandlerServer(s, newMessageHandlerService(logger, notifier, rs, playerTracker))
 	logger.Infow("listening for gRPC requests", "port", cfg.Port)
 
 	go func() {

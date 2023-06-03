@@ -22,6 +22,11 @@ func Run(cfg *config.Config, logger *zap.SugaredLogger) {
 		logger.Fatalw("failed to connect to relationship service", err)
 	}
 
+	playerTrackerClient, err := clients.NewPlayerTrackerClient(cfg.PlayerTrackerServiceConfig)
+	if err != nil {
+		logger.Fatalw("failed to connect to player tracker service", err)
+	}
+
 	permClient, err := clients.NewPermissionClient(cfg.PermissionService)
 	if err != nil {
 		logger.Fatalw("failed to connect to permission service", err)
@@ -36,7 +41,7 @@ func Run(cfg *config.Config, logger *zap.SugaredLogger) {
 
 	kafka.NewConsumer(ctx, wg, cfg.Kafka, logger, notif, permClient, badgeClient)
 
-	service.RunServices(ctx, logger, wg, cfg, notif, relClient)
+	service.RunServices(ctx, logger, wg, cfg, notif, relClient, playerTrackerClient)
 
 	wg.Wait()
 	logger.Info("shutting down")
