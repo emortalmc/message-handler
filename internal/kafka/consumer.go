@@ -96,14 +96,13 @@ func (c *consumer) cacheRoles(ctx context.Context) {
 	}
 }
 
-var chatTemplate = template.Must(template.New("chat").Parse("{{if .Badge}}<hover:show_text:'{{.BadgeHoverDescription}}'>{{.Badge}}</hover> {{end}}{{.DisplayName}}: {{.Text}}"))
+var chatTemplate = template.Must(template.New("chat").Parse("{{if .Badge}}<hover:show_text:'{{.BadgeHoverDescription}}'>{{.Badge}}</hover> {{end}}{{.DisplayName}}: <content>"))
 
 type chatTemplateData struct {
 	Badge                 string
 	BadgeHoverDescription string
 
 	DisplayName string
-	Text        string
 }
 
 func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message, uncastMsg proto.Message) {
@@ -125,9 +124,10 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 		c.logger.Errorw("failed to get player displayNamePart", err) // Log but continue
 	}
 
+	messageContent := sanitizeMessage(originalMessage.Message)
+
 	templateData := &chatTemplateData{
 		DisplayName: displayNamePart,
-		Text:        originalMessage.Message,
 	}
 
 	if b != nil {
@@ -135,7 +135,7 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 		templateData.BadgeHoverDescription = b.HoverText
 	}
 
-	content, err := createMessage(templateData)
+	message, err := createMessage(templateData)
 
 	if err != nil {
 		c.logger.Errorw("failed to create chat message", err)
@@ -143,11 +143,28 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 	}
 
 	if err := c.notifier.ChatMessageCreated(ctx, &pbmodel.ChatMessage{
-		SenderId: originalMessage.SenderId,
-		Message:  content,
+		SenderId:       originalMessage.SenderId,
+		Message:        message,
+		MessageContent: messageContent,
 	}); err != nil {
 		c.logger.Errorw("failed to notify chat message created", err)
 	}
+}
+
+const (
+	minBlockedRune = '\uE000'
+	maxBlockedRune = '\uF8FF'
+)
+
+func sanitizeMessage(message string) string {
+	runes := []rune(message)
+	for i, r := range runes {
+		if r >= minBlockedRune && r <= maxBlockedRune {
+			runes[i] = ' '
+		}
+	}
+
+	return string(runes)
 }
 
 func createMessage(data *chatTemplateData) (string, error) {

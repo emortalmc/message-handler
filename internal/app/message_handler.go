@@ -22,7 +22,7 @@ func Run(cfg *config.Config, logger *zap.SugaredLogger) {
 		logger.Fatalw("failed to connect to relationship service", err)
 	}
 
-	playerTrackerClient, err := clients.NewPlayerTrackerClient(cfg.PlayerTrackerServiceConfig)
+	playerTrackerClient, err := clients.NewPlayerTrackerClient(cfg.PlayerTrackerService)
 	if err != nil {
 		logger.Fatalw("failed to connect to player tracker service", err)
 	}

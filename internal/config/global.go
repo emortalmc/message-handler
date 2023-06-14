@@ -8,10 +8,10 @@ import (
 type Config struct {
 	Kafka *KafkaConfig
 
-	RelationshipService        *RelationshipServiceConfig
-	PlayerTrackerServiceConfig *PlayerTrackerServiceConfig
-	BadgeService               *BadgeServiceConfig
-	PermissionService          *PermissionServiceConfig
+	RelationshipService  *RelationshipServiceConfig
+	PlayerTrackerService *PlayerTrackerServiceConfig
+	BadgeService         *BadgeServiceConfig
+	PermissionService    *PermissionServiceConfig
 
 	Development bool
 	Port        uint16
