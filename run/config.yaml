@@ -10,7 +10,7 @@ relationshipService:
 
 playerTrackerService:
   host: localhost
-  port: 10005
+  port: 10004
 
 badgeService:
   host: localhost

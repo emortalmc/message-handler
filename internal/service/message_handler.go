@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"github.com/emortalmc/proto-specs/gen/go/grpc/mcplayer"
 	pb "github.com/emortalmc/proto-specs/gen/go/grpc/messagehandler"
-	"github.com/emortalmc/proto-specs/gen/go/grpc/playertracker"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/relationship"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -18,11 +18,11 @@ type privateMessageService struct {
 
 	notif         kafka.Notifier
 	rs            relationship.RelationshipClient
-	playerTracker playertracker.PlayerTrackerClient
+	playerTracker mcplayer.PlayerTrackerClient
 }
 
 func newMessageHandlerService(logger *zap.SugaredLogger, notif kafka.Notifier, rs relationship.RelationshipClient,
-	playerTracker playertracker.PlayerTrackerClient) pb.MessageHandlerServer {
+	playerTracker mcplayer.PlayerTrackerClient) pb.MessageHandlerServer {
 
 	return &privateMessageService{
 		logger: logger,
@@ -45,13 +45,13 @@ var (
 )
 
 func (s *privateMessageService) SendPrivateMessage(ctx context.Context, req *pb.PrivateMessageRequest) (*pb.PrivateMessageResponse, error) {
-	trackerResp, err := s.playerTracker.GetPlayerServer(ctx, &playertracker.GetPlayerServerRequest{
-		PlayerId: req.Message.RecipientId,
+	trackerResp, err := s.playerTracker.GetPlayerServers(ctx, &mcplayer.GetPlayerServersRequest{
+		PlayerIds: []string{req.Message.RecipientId},
 	})
 	if err != nil {
 		s.logger.Errorw("failed to get player server", "error", err)
 		// don't return an error here. We'd rather send a message to an offline player than fail because the player-tracker is down.
-	} else if trackerResp.Server == nil {
+	} else if len(trackerResp.PlayerServers) != 1 {
 		return nil, sendPrivateMessageNotOnlineErr
 	}
 

@@ -3,8 +3,8 @@ package clients
 import (
 	"fmt"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/badge"
+	"github.com/emortalmc/proto-specs/gen/go/grpc/mcplayer"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/permission"
-	"github.com/emortalmc/proto-specs/gen/go/grpc/playertracker"
 	"github.com/emortalmc/proto-specs/gen/go/grpc/relationship"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,13 +20,13 @@ func NewRelationshipClient(cfg *config.RelationshipServiceConfig) (relationship.
 	return relationship.NewRelationshipClient(lis), nil
 }
 
-func NewPlayerTrackerClient(cfg *config.PlayerTrackerServiceConfig) (playertracker.PlayerTrackerClient, error) {
+func NewPlayerTrackerClient(cfg *config.PlayerTrackerServiceConfig) (mcplayer.PlayerTrackerClient, error) {
 	lis, err := createConnection(cfg.Host, cfg.Port)
 	if err != nil {
 		return nil, err
 	}
 
-	return playertracker.NewPlayerTrackerClient(lis), nil
+	return mcplayer.NewPlayerTrackerClient(lis), nil
 }
 
 func NewPermissionClient(cfg *config.PermissionServiceConfig) (permission.PermissionServiceClient, error) {

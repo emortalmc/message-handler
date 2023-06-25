@@ -3,7 +3,7 @@ module message-handler
 go 1.20
 
 require (
-	github.com/emortalmc/proto-specs/gen/go v0.0.0-20230603170831-d1d6d4a9b1de
+	github.com/emortalmc/proto-specs/gen/go v0.0.0-20230625150114-d69d436d93d2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/segmentio/kafka-go v0.4.39
 	github.com/spf13/viper v1.15.0

@@ -131,7 +131,7 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 	}
 
 	if b != nil {
-		templateData.Badge = b.ChatCharacter
+		templateData.Badge = b.ChatString
 		templateData.BadgeHoverDescription = b.HoverText
 	}
 
