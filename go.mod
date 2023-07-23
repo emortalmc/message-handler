@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/emortalmc/proto-specs/gen/go v0.0.0-20230625150114-d69d436d93d2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
-	github.com/segmentio/kafka-go v0.4.39
+	github.com/segmentio/kafka-go v0.4.42
 	github.com/spf13/viper v1.15.0
 	go.uber.org/zap v1.24.0
 	google.golang.org/grpc v1.54.0
