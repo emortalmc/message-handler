@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: message-handler
-          image: ghcr.io/emortalmc/message-handler:6a0e14f15cb5da0078140b0ce0b704f81261ef8b
+          image: ghcr.io/emortalmc/message-handler:d81c4e35b4795a53f07fad5da7da5516be8feb3d
           ports:
             - name: grpc
               containerPort: 9010
