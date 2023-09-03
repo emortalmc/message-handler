@@ -1,6 +1,6 @@
 module message-handler
 
-go 1.20
+go 1.21
 
 require (
 	github.com/emortalmc/proto-specs/gen/go v0.0.0-20230625150114-d69d436d93d2

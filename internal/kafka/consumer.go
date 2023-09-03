@@ -144,6 +144,8 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 
 	if err := c.notifier.ChatMessageCreated(ctx, &pbmodel.ChatMessage{
 		SenderId:       originalMessage.SenderId,
+		SenderUsername: originalMessage.SenderUsername,
+		
 		Message:        message,
 		MessageContent: messageContent,
 	}); err != nil {
