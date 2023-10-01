@@ -22,8 +22,9 @@ jobs:
   deploy:
     needs: "publish"
     runs-on: "ubuntu-latest"
-    if: "github.ref == 'refs/heads/main'"
     steps:
-      - uses: "emortalmc/actions/k8s-sync@main"
+      - uses: "emortalmc/actions/argo-sync@main"
         with:
-          manifest-path: "deployment.yaml"
+          deployment-name: "message-handler"
+          values-path: "service/values/message-handler.yaml"
+          deployments-repo-token: "${{ secrets.DEPLOYMENTS_REPO_TOKEN }}"
