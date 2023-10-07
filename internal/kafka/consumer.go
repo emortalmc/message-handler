@@ -105,6 +105,7 @@ type chatTemplateData struct {
 	DisplayName string
 }
 
+// todo in the future let's make this resistant to service failures
 func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message, uncastMsg proto.Message) {
 	msg := uncastMsg.(*common.PlayerChatMessageMessage)
 
@@ -114,12 +115,24 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 	// 2. Get active prefix
 	// 3. Get active username
 	// Process in chat template :D
-	b, err := c.getPlayerBadge(ctx, originalMessage.SenderId)
+	b, err := c.fetchPlayerBadge(ctx, originalMessage.SenderId)
 	if err != nil {
 		c.logger.Errorw("failed to get player b", err) // Log but continue
 	}
 
-	displayNamePart, err := c.getDisplayUsername(ctx, originalMessage.SenderId, originalMessage.SenderUsername)
+	rolesResp, err := c.fetchPlayerRoles(ctx, originalMessage.SenderId)
+	if err != nil {
+		c.logger.Errorw("failed to get player roles", err)
+		return
+	}
+
+	roles, err := c.roleIdsToRoles(rolesResp.RoleIds)
+	if err != nil {
+		c.logger.Errorw("failed to get player roles", err)
+		return
+	}
+
+	displayNamePart, err := c.getDisplayUsername(originalMessage.SenderUsername, rolesResp)
 	if err != nil {
 		c.logger.Errorw("failed to get player displayNamePart", err) // Log but continue
 	}
@@ -148,9 +161,39 @@ func (c *consumer) handlePlayerChatMessage(ctx context.Context, _ *kafka.Message
 
 		Message:        message,
 		MessageContent: messageContent,
+
+		ParseMessageContent: playerHasPermission(roles, "chat.parse"),
 	}); err != nil {
 		c.logger.Errorw("failed to notify chat message created", err)
 	}
+}
+
+func (c *consumer) roleIdsToRoles(roleIds []string) ([]*permmodel.Role, error) {
+	roles := make([]*permmodel.Role, len(roleIds))
+
+	for i, roleId := range roleIds {
+		role, ok := c.roleCache[roleId]
+		if !ok {
+			return nil, fmt.Errorf("failed to find role with id %s", roleId)
+		}
+
+		roles[i] = role
+	}
+
+	return roles, nil
+}
+
+func playerHasPermission(roles []*permmodel.Role, perm string) bool {
+	// todo this is technically wrong as it doesn't use priority levels
+	for _, role := range roles {
+		for _, p := range role.Permissions {
+			if p.State == permmodel.PermissionNode_ALLOW && p.Node == perm {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 const (
@@ -177,10 +220,10 @@ func createMessage(data *chatTemplateData) (string, error) {
 	return buf.String(), nil
 }
 
-// getPlayerBadge returns a string (including a space if a badge is present) representing the player's active badge.
+// fetchPlayerBadge returns a string (including a space if a badge is present) representing the player's active badge.
 // If no badge is present, an empty string is returned.
 // If there is an error, the string "?? " is returned.
-func (c *consumer) getPlayerBadge(ctx context.Context, playerId string) (*badgepbmodel.Badge, error) {
+func (c *consumer) fetchPlayerBadge(ctx context.Context, playerId string) (*badgepbmodel.Badge, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -204,27 +247,21 @@ func (c *consumer) getPlayerBadge(ctx context.Context, playerId string) (*badgep
 	return res.Badge, nil
 }
 
-func (c *consumer) getDisplayUsername(ctx context.Context, playerId string, username string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	res, err := c.permClient.GetPlayerRoles(ctx, &permission.GetPlayerRolesRequest{
-		PlayerId: playerId,
-	})
-	if err != nil {
-		return username, fmt.Errorf("failed to get player roles: %w", err)
-	}
-
-	if res.ActiveDisplayNameRoleId == nil {
+func (c *consumer) getDisplayUsername(username string, rolesResp *permission.PlayerRolesResponse) (string, error) {
+	if rolesResp.ActiveDisplayNameRoleId == nil {
 		return username, nil
 	}
 
-	role, ok := c.roleCache[*res.ActiveDisplayNameRoleId]
+	if rolesResp.ActiveDisplayNameRoleId == nil {
+		return username, nil
+	}
+
+	role, ok := c.roleCache[*rolesResp.ActiveDisplayNameRoleId]
 	if !ok {
-		return username, fmt.Errorf("failed to find role with id %s", *res.ActiveDisplayNameRoleId)
+		return username, fmt.Errorf("failed to find role with id %s", *rolesResp.ActiveDisplayNameRoleId)
 	}
 	if role.DisplayName == nil {
-		return username, fmt.Errorf("role with id %s has no display name (but should have?)", *res.ActiveDisplayNameRoleId)
+		return username, fmt.Errorf("role with id %s has no display name (but should have?)", *rolesResp.ActiveDisplayNameRoleId)
 	}
 
 	t, err := template.New("displayname").Parse(*role.DisplayName)
@@ -238,6 +275,20 @@ func (c *consumer) getDisplayUsername(ctx context.Context, playerId string, user
 	}
 
 	return buf.String(), nil
+}
+
+func (c *consumer) fetchPlayerRoles(ctx context.Context, playerId string) (*permission.PlayerRolesResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	res, err := c.permClient.GetPlayerRoles(ctx, &permission.GetPlayerRolesRequest{
+		PlayerId: playerId,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get player roles: %w", err)
+	}
+
+	return res, nil
 }
 
 func (c *consumer) handleRoleUpdate(_ context.Context, _ *kafka.Message, uncastMsg proto.Message) {
