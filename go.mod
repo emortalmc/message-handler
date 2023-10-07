@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/emortalmc/proto-specs/gen/go v0.0.0-20231007222717-fa39fcfe52f5
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/segmentio/kafka-go v0.4.42
+	github.com/segmentio/kafka-go v0.4.43
 	github.com/spf13/viper v1.16.0
 	go.uber.org/zap v1.25.0
 	google.golang.org/grpc v1.57.0
